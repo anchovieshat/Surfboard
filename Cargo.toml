@@ -1,0 +1,9 @@
+[package]
+name = "surfboard"
+version = "0.1.0"
+authors = ["Colin Davidson <colin@pentaquine.com>"]
+
+[dependencies]
+byteorder = "*"
+bincode = "*"
+rustc-serialize = "*"
