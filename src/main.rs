@@ -19,12 +19,21 @@ struct Fmt {
 }
 
 impl Fmt {
-    fn new(num_channels: u16, sample_rate: u32, bits_per_sample: u16) {
+    fn write<W: io::Write>(w: &mut W, num_channels: u16, sample_rate: u32, bits_per_sample: u16) {
         let id = BigEndian::read_u32(b"fmt ");
         let size = 16; //PCM format size
         let audio_fmt = 1; //Linear Quantization
         let byte_rate = (sample_rate * (num_channels as u32) * (bits_per_sample as u32)) / 8;
         let block_align = (num_channels * bits_per_sample) / 8;
+
+        w.write_u32::<BigEndian>(id).unwrap();
+        w.write_u32::<LittleEndian>(size).unwrap();
+        w.write_u16::<LittleEndian>(audio_fmt).unwrap();
+        w.write_u16::<LittleEndian>(num_channels).unwrap();
+        w.write_u32::<LittleEndian>(sample_rate).unwrap();
+        w.write_u32::<LittleEndian>(byte_rate).unwrap();
+        w.write_u16::<LittleEndian>(block_align).unwrap();
+        w.write_u16::<LittleEndian>(bits_per_sample).unwrap();
     }
 
     fn parse<R: io::Read>(r: &mut R) -> Fmt {
@@ -70,8 +79,11 @@ struct Data {
 }
 
 impl Data {
-    fn new(data: Vec<u8>) {
+    fn write<W: io::Write>(w: &mut W, data: Vec<u8>) {
         let id = BigEndian::read_u32(b"data");
+
+        w.write_u32::<BigEndian>(id).unwrap();
+        w.write_u32::<LittleEndian>(data.len() as u32).unwrap();
     }
 
     fn parse<R: io::Read>(r: &mut R) -> Data {
@@ -139,12 +151,17 @@ struct Wave {
 }
 
 impl Wave {
-    fn write(num_channels: u16, sample_rate: u32, bits_per_sample: u16, data: Vec<u8>) {
+    fn write<W: io::Write>(w: &mut W, num_channels: u16, sample_rate: u32, bits_per_sample: u16, data: Vec<u8>) {
         let chunk_id = BigEndian::read_u32(b"RIFF");
         let format = BigEndian::read_u32(b"WAVE");
-        let fmt_chunk = Fmt::new(num_channels, sample_rate, bits_per_sample);
-        let data_chunk = Data::new(data);
-        let chunk_size = 4 + (8 + fmt_chunk.size) + (8 + data_chunk.size); // Filesize - (chunk_id + chunk_size)
+        let chunk_size = 4 + 16 + (data.len()); // Filesize - (chunk_id + chunk_size)
+
+        w.write_u32::<BigEndian>(chunk_id).unwrap();
+        w.write_u32::<LittleEndian>(chunk_size as u32).unwrap();
+        w.write_u32::<BigEndian>(format).unwrap();
+
+        let fmt_chunk = Fmt::write(w, num_channels, sample_rate, bits_per_sample);
+        let data_chunk = Data::write(w, data);
     }
 
     fn parse<R: io::Read + io::Seek>(r: &mut R) -> Wave {
@@ -184,7 +201,7 @@ fn main() {
         let mut wav_file = File::create(&args[1]).unwrap();
 
         let data = Vec::new();
-        Wave::write(1, 44100, 8, data);
+        Wave::write(&mut wav_file, 1, 44100, 8, data);
     }
 
     let mut read_test = File::open(&args[1]).unwrap();
