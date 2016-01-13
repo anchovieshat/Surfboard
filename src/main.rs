@@ -20,7 +20,7 @@ struct Fmt {
 
 impl Fmt {
     fn write<W: io::Write>(w: &mut W, num_channels: u16, sample_rate: u32, bits_per_sample: u16) {
-        let id = BigEndian::read_u32(b"fmt ");
+        let id = BigEndian::read_u32(b" fmt");
         let size = 16; //PCM format size
         let audio_fmt = 1; //Linear Quantization
         let byte_rate = (sample_rate * (num_channels as u32) * (bits_per_sample as u32)) / 8;
@@ -87,15 +87,10 @@ impl Data {
     }
 
     fn parse<R: io::Read>(r: &mut R) -> Data {
-        let id = r.read_u32::<LittleEndian>().unwrap();
+        let id = BigEndian::read_u32(b"data");
         let size = r.read_u32::<LittleEndian>().unwrap();
         let mut data = Vec::new();
         r.read_to_end(&mut data);
-
-        let mut t = vec![];
-        t.write_u32::<LittleEndian>(id).unwrap();
-        println!("\ndata id: {}", str::from_utf8(&t).unwrap());
-        t.clear();
 
         println!("data size: {}", size);
 
@@ -116,16 +111,13 @@ struct List {
 
 impl List {
     fn parse<R: io::Read + io::Seek>(r: &mut R) -> List {
-        let list_id = r.read_u32::<LittleEndian>().unwrap();
+        let list_id = BigEndian::read_u32(b"list");
         let size = r.read_u32::<LittleEndian>().unwrap();
         let type_id = r.read_u32::<LittleEndian>().unwrap();
         let data = Vec::new();
         r.seek(io::SeekFrom::Current((size - 4) as i64)).unwrap();
 
         let mut t = vec![];
-        t.write_u32::<LittleEndian>(list_id).unwrap();
-        println!("\nlist id: {}", str::from_utf8(&t).unwrap());
-        t.clear();
 
         println!("list size: {}", size);
 
@@ -147,6 +139,7 @@ struct Wave {
     chunk_size: u32,
     format: u32,
     fmt: Fmt,
+    list: Option<List>,
     data: Data,
 }
 
@@ -182,7 +175,28 @@ impl Wave {
         t.clear();
 
         let fmt_chunk = Fmt::parse(r);
-        //let list_chunk = List::parse(r);
+
+        let t_id = r.read_u32::<LittleEndian>().unwrap();
+        t.write_u32::<LittleEndian>(t_id).unwrap();
+        let mut id = String::from_utf8(t).unwrap();
+
+        let mut list_chunk = None;
+        while &*id != "data" {
+            match &*id {
+                "LIST" => {
+                    println!("\nlist id: {}", id);
+                    list_chunk = Some(List::parse(r));
+                },
+                _ => { panic!("Error: cannot parse: {} chunk", id); },
+            }
+
+            let t_id = r.read_u32::<LittleEndian>().unwrap();
+            let mut tmp = Vec::new();
+            tmp.write_u32::<LittleEndian>(t_id).unwrap();
+            id = String::from_utf8(tmp).unwrap();
+        }
+
+        println!("\ndata id: {}", id);
         let data_chunk = Data::parse(r);
 
         Wave {
@@ -190,6 +204,7 @@ impl Wave {
             chunk_size: chunk_size,
             format: format,
             fmt: fmt_chunk,
+            list: list_chunk,
             data: data_chunk,
         }
     }
@@ -197,12 +212,12 @@ impl Wave {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    {
+    /*{
         let mut wav_file = File::create(&args[1]).unwrap();
 
         let data = Vec::new();
         Wave::write(&mut wav_file, 1, 44100, 8, data);
-    }
+    }*/
 
     let mut read_test = File::open(&args[1]).unwrap();
     let real_wav = Wave::parse(&mut read_test);
