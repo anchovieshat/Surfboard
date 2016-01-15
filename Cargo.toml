@@ -7,3 +7,4 @@ authors = ["Colin Davidson <colin@pentaquine.com>"]
 byteorder = "*"
 bincode = "*"
 rustc-serialize = "*"
+docopt = "*"

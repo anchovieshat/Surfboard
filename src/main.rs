@@ -1,11 +1,13 @@
 extern crate byteorder;
+extern crate docopt;
+extern crate rustc_serialize;
 
 use std::str;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
-use std::env;
 use byteorder::{LittleEndian, BigEndian, ByteOrder, ReadBytesExt, WriteBytesExt};
+use docopt::Docopt;
 
 struct Fmt {
     id: u32,
@@ -211,14 +213,37 @@ impl Wave {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    /*{
-        let mut wav_file = File::create(&args[1]).unwrap();
+    const USAGE: &'static str = "
+    Usage: surfboard -r <source>
+       surfboard -w <source> <dest>
+       surfboard -h
+
+    Options:
+        -r, --read   Parse file.
+        -w, --write  Write data to file.
+        -h, --help   Show this message.
+    ";
+
+    #[derive(RustcDecodable, Debug)]
+    struct Args {
+        arg_source: String,
+        arg_dest: Option<String>,
+        flag_read: bool,
+        flag_write: bool,
+        flag_help: bool,
+    }
+
+    let args: Args = Docopt::new(USAGE).unwrap().decode().unwrap_or_else(|e| e.exit());
+
+    if args.flag_write && args.arg_dest.is_some() {
+        let mut wav_file = File::create(&args.arg_dest.unwrap()).unwrap();
 
         let data = Vec::new();
         Wave::write(&mut wav_file, 1, 44100, 8, data);
-    }*/
+    }
 
-    let mut read_test = File::open(&args[1]).unwrap();
-    let real_wav = Wave::parse(&mut read_test);
+    if args.flag_read || args.flag_write {
+        let mut read_test = File::open(&args.arg_source).unwrap();
+        let real_wav = Wave::parse(&mut read_test);
+    }
 }
