@@ -250,6 +250,12 @@ impl Wave {
         println!("\ndata id: {}", id);
         let data_chunk = Data::parse(r);
 
+        let song_ms = ((data_chunk.size as u64) * 1000) / fmt_chunk.byte_rate as u64;
+        let song_hr = song_ms / (3600 * 1000);
+        let song_min = song_ms / (60 * 1000);
+        let song_sec = song_ms / 1000;
+        println!("\nSong length: {}:{:0>2}", song_min, song_sec - (song_min * 60));
+
         Wave {
             chunk_id: chunk_id,
             chunk_size: chunk_size,
@@ -285,10 +291,10 @@ fn main() {
     let args: Args = Docopt::new(USAGE).unwrap().decode().unwrap_or_else(|e| e.exit());
 
     if args.flag_write && args.arg_dest.is_some() {
-        let mut pcm_file = File::open(&args.arg_source).unwrap();
+        let mut data_file = File::open(&args.arg_source).unwrap();
 
         let mut data = Vec::new();
-        pcm_file.read_to_end(&mut data).unwrap();
+        data_file.read_to_end(&mut data).unwrap();
 
         let mut wav_file = File::create(&args.arg_dest.unwrap()).unwrap();
 
