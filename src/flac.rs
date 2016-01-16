@@ -1,4 +1,4 @@
-// Based on http://xiph.org/flac/format.html
+// Based on https://xiph.org/flac/format.html
 
 #![allow(dead_code)]
 
