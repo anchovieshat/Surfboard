@@ -6,6 +6,7 @@ use std::str;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
+use std::collections::HashMap;
 use byteorder::{LittleEndian, BigEndian, ByteOrder, ReadBytesExt, WriteBytesExt};
 use docopt::Docopt;
 
@@ -104,34 +105,80 @@ impl Data {
     }
 }
 
+struct Info {
+    data: HashMap<String, String>,
+}
+
+impl Info {
+    fn parse<R: io::Read + io::Seek>(r: &mut R, size: u32) -> Info {
+        let mut cur_pos = 4;
+        let mut data = HashMap::new();
+
+        while cur_pos < size {
+            let mut t = vec![];
+            let info_flag = r.read_u32::<LittleEndian>().unwrap();
+            let text_size = r.read_u32::<LittleEndian>().unwrap();
+
+            t.write_u32::<LittleEndian>(info_flag).unwrap();
+            let info_flag = String::from_utf8(t).unwrap();
+
+            let mut text = String::new();
+            {
+                let mut str_handle = r.take(text_size as u64);
+                str_handle.read_to_string(&mut text).unwrap();
+
+            }
+
+            println!("{}: {}", info_flag, text);
+
+            data.insert(info_flag, text);
+
+            cur_pos += 8 + text_size;
+            if cur_pos % 2 != 0 {
+                r.seek(io::SeekFrom::Current((cur_pos % 2) as i64)).unwrap();
+                cur_pos += cur_pos % 2;
+            }
+        }
+        Info {
+            data: data,
+        }
+    }
+}
+
 struct List {
     list_id: u32,
     size: u32,
     type_id: u32,
-    data: Vec<u8>,
+    info: Option<Info>,
 }
 
 impl List {
     fn parse<R: io::Read + io::Seek>(r: &mut R) -> List {
         let list_id = BigEndian::read_u32(b"list");
         let size = r.read_u32::<LittleEndian>().unwrap();
-        let type_id = r.read_u32::<LittleEndian>().unwrap();
-        let data = Vec::new();
-        r.seek(io::SeekFrom::Current((size - 4) as i64)).unwrap();
-
-        let mut t = vec![];
 
         println!("list size: {}", size);
 
+        let mut t = vec![];
+
+        let type_id = r.read_u32::<LittleEndian>().unwrap();
         t.write_u32::<LittleEndian>(type_id).unwrap();
-        println!("type id: {}", str::from_utf8(&t).unwrap());
-        t.clear();
+        let mut type_string = String::from_utf8(t).unwrap();
+
+        println!("type id: {}", &*type_string);
+
+        let mut info = None;
+        if &*type_string == "INFO" {
+            info = Some(Info::parse(r, size));
+        } else {
+            r.seek(io::SeekFrom::Current((size - 4) as i64)).unwrap();
+        }
 
         List {
             list_id: list_id,
             size: size,
             type_id: type_id,
-            data: data,
+            info: info,
         }
     }
 }
