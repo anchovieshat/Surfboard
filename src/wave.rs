@@ -191,11 +191,9 @@ pub struct Wave {
 
 impl Wave {
     pub fn write<W: io::Write>(w: &mut W, num_channels: u16, sample_rate: u32, bits_per_sample: u16, data: Vec<u8>) {
-        let chunk_id = BigEndian::read_u32(b"RIFF");
         let format = BigEndian::read_u32(b"WAVE");
         let chunk_size = 4 + 16 + (data.len()); // Filesize - (chunk_id + chunk_size)
 
-        w.write_u32::<BigEndian>(chunk_id).unwrap();
         w.write_u32::<LittleEndian>(chunk_size as u32).unwrap();
         w.write_u32::<BigEndian>(format).unwrap();
 
