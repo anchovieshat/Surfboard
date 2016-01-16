@@ -285,9 +285,13 @@ fn main() {
     let args: Args = Docopt::new(USAGE).unwrap().decode().unwrap_or_else(|e| e.exit());
 
     if args.flag_write && args.arg_dest.is_some() {
+        let mut pcm_file = File::open(&args.arg_source).unwrap();
+
+        let mut data = Vec::new();
+        pcm_file.read_to_end(&mut data).unwrap();
+
         let mut wav_file = File::create(&args.arg_dest.unwrap()).unwrap();
 
-        let data = Vec::new();
         Wave::write(&mut wav_file, 1, 44100, 8, data);
     }
 
