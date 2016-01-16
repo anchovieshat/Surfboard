@@ -134,6 +134,8 @@ impl Info {
             data.insert(info_flag, text);
 
             cur_pos += 8 + text_size;
+
+            // Handles word alignment cases
             if cur_pos % 2 != 0 {
                 r.seek(io::SeekFrom::Current((cur_pos % 2) as i64)).unwrap();
                 cur_pos += cur_pos % 2;
