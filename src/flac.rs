@@ -5,10 +5,9 @@
 use std::io::prelude::*;
 use std::io;
 use num::bigint::BigUint;
-use std::collections::HashMap;
 use byteorder::{LittleEndian, BigEndian, ByteOrder, ReadBytesExt};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum BlockName {
     StreamInfo,
     Padding,
@@ -19,6 +18,7 @@ enum BlockName {
     Other,
 }
 
+#[derive(Debug, Clone)]
 enum BlockType {
     StreamInfo {
         min_block_size: u16,
@@ -139,6 +139,7 @@ impl BlockType {
     fn picture<R: io::Read + io::Seek>(r: &mut R) -> BlockType { BlockType::Other }
 }
 
+#[derive(Debug, Clone)]
 struct Block {
     last_meta: bool,
     block_name: BlockName,
@@ -191,25 +192,92 @@ impl Block {
     }
 }
 
+#[derive(Debug)]
+enum BlockStrategy {
+    FixedBlocksize,
+    VariableBlocksize,
+}
+
+struct FrameHeader {
+    sync_code: u16,
+    block_strategy: BlockStrategy,
+    block_size: u8,
+    sample_rate: u8,
+    channel_assignment: u8,
+    sample_size: u8,
+    crc_8: u8,
+}
+
+impl FrameHeader {
+    pub fn parse<R: io::Read + io::Seek>(r: &mut R) -> FrameHeader {
+        let header = r.read_u32::<BigEndian>().unwrap();
+
+        let sync_code = (header >> 18) as u16;
+        let block_strategy = match (header << 19) >> 31 {
+            0 => BlockStrategy::FixedBlocksize,
+            1 => BlockStrategy::VariableBlocksize,
+            _ => panic!("wut"),
+        };
+
+        let block_size = ((header << 16) >> 28) as u8;
+        let sample_rate = ((header << 20) >> 28) as u8;
+        let channel_assignment = ((header << 24) >> 28) as u8;
+        let sample_size = ((header << 27) >> 29) as u8;
+        let crc_8 = r.read_u8().unwrap();
+
+        println!("\nsync code: {:0>8b}", sync_code);
+        println!("block strategy: {:?}", block_strategy);
+        println!("block size: {:0>4b}", block_size);
+        println!("sample rate: {:0>4b}", sample_rate);
+        println!("channel assignment: {:0>4b}", channel_assignment);
+        println!("sample size: {:0>3b}", sample_size);
+        println!("CRC-8: {}", crc_8);
+
+        FrameHeader {
+            sync_code: sync_code,
+            block_strategy: block_strategy,
+            block_size: block_size,
+            sample_rate: sample_rate,
+            channel_assignment: channel_assignment,
+            sample_size: sample_size,
+            crc_8: crc_8,
+        }
+    }
+}
+
 pub struct Flac {
     stream_info: Block,
     blocks: Option<Vec<Block>>,
-    data: Vec<u8>,
+    frames: Vec<u8>,
 }
 
 impl Flac {
     pub fn parse<R: io::Read + io::Seek>(r: &mut R) -> Flac {
         let stream_info = Block::parse(r);
-        let t_block = Block::parse(r);
-        let blocks = None;
+        let mut block_list = Vec::new();
 
-        let mut data = Vec::new();
-        r.read_to_end(&mut data).unwrap();
+        let mut blocks = None;
+
+        if stream_info.last_meta == false {
+            let mut t_block = Block::parse(r);
+            block_list.push(t_block.clone());
+
+            while t_block.last_meta == false {
+                block_list.push(t_block);
+                t_block = Block::parse(r);
+            }
+
+            blocks = Some(block_list);
+        }
+
+        let mut frames = Vec::new();
+        let frame = FrameHeader::parse(r);
+        r.read_to_end(&mut frames).unwrap();
 
         Flac {
             stream_info: stream_info,
             blocks: blocks,
-            data: data,
+            frames: frames,
         }
     }
 }
