@@ -5,6 +5,7 @@
 use std::io::prelude::*;
 use std::io;
 use num::bigint::BigUint;
+use std::collections::HashMap;
 use byteorder::{LittleEndian, BigEndian, ByteOrder, ReadBytesExt};
 
 #[derive(Debug)]
@@ -33,7 +34,10 @@ enum BlockType {
     Padding(u64),
     Application,
     Seektable,
-    VorbisComment,
+    VorbisComment {
+        vendor_string: String,
+        comments: Vec<String>,
+    },
     Picture,
     Other,
 }
@@ -102,7 +106,36 @@ impl BlockType {
     fn pad<R: io::Read + io::Seek>(r: &mut R) -> BlockType { BlockType::Other }
     fn app<R: io::Read + io::Seek>(r: &mut R) -> BlockType { BlockType::Other }
     fn table<R: io::Read + io::Seek>(r: &mut R) -> BlockType { BlockType::Other }
-    fn comment<R: io::Read + io::Seek>(r: &mut R) -> BlockType { BlockType::Other }
+    fn comment<R: io::Read + io::Seek>(r: &mut R) -> BlockType {
+        let vendor_length = r.read_u32::<LittleEndian>().unwrap();
+        let mut vendor_string = String::new();
+        {
+            let mut string_handle = r.take(vendor_length as u64);
+            string_handle.read_to_string(&mut vendor_string).unwrap();
+        }
+
+        let comment_list_length = r.read_u32::<LittleEndian>().unwrap();
+
+        let mut comment_list = Vec::new();
+        for i in 0..comment_list_length {
+            let comment_length = r.read_u32::<LittleEndian>().unwrap();
+            let mut comment_string = String::new();
+            {
+                let mut string_handle = r.take(comment_length as u64);
+                string_handle.read_to_string(&mut comment_string).unwrap();
+            }
+
+            comment_list.push(comment_string);
+        }
+
+        println!("vendor string: {}", vendor_string);
+        println!("comment list: {:?}", comment_list);
+
+        BlockType::VorbisComment {
+            vendor_string: vendor_string,
+            comments: comment_list,
+        }
+    }
     fn picture<R: io::Read + io::Seek>(r: &mut R) -> BlockType { BlockType::Other }
 }
 
@@ -123,7 +156,7 @@ impl Block {
             _ => panic!("wut"),
         };
 
-        let block_name = match (header << 1) >> 24 {
+        let block_name = match (header << 1) >> 25 {
             0 => BlockName::StreamInfo,
             1 => BlockName::Padding,
             2 => BlockName::Application,
@@ -135,9 +168,9 @@ impl Block {
 
         let length = (header << 8) >> 8;
 
-        println!("Last block before audio? {}", last_meta);
-        println!("block type? {:?}", block_name);
-        println!("length: {}", length);
+        println!("\nLast block before audio? {}", last_meta);
+        println!("{:?}", block_name);
+        println!("-----------------------------");
 
         let type_data = match block_name {
             BlockName::StreamInfo => Some(BlockType::stream(r)),
@@ -167,6 +200,7 @@ pub struct Flac {
 impl Flac {
     pub fn parse<R: io::Read + io::Seek>(r: &mut R) -> Flac {
         let stream_info = Block::parse(r);
+        let t_block = Block::parse(r);
         let blocks = None;
 
         let mut data = Vec::new();
