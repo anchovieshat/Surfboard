@@ -8,3 +8,5 @@ byteorder = "*"
 bincode = "*"
 rustc-serialize = "*"
 docopt = "*"
+
+num = { path = "../num" }

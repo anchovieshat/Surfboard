@@ -4,6 +4,7 @@
 
 use std::io::prelude::*;
 use std::io;
+use num::bigint::BigUint;
 use byteorder::{LittleEndian, BigEndian, ByteOrder, ReadBytesExt};
 
 #[derive(Debug)]
@@ -27,6 +28,7 @@ enum BlockType {
         num_channels: u8,
         bits_per_sample: u8,
         total_samples: u64,
+        sig: BigUint,
     },
     Padding(u64),
     Application,
@@ -61,9 +63,19 @@ impl BlockType {
         }
 
         let stream_data = r.read_u64::<BigEndian>().unwrap();
-        let sample_rate: u32 = (stream_data >> 44) as u32;
-        let num_channels: u8 = (((stream_data << 20) >> 61) + 1) as u8;
-        let bits_per_sample: u8 = (((stream_data << 23) >> 59) + 1) as u8;
+        let sample_rate: u32 = (stream_data >> 44) as u32; // 20 bits
+        let num_channels: u8 = (((stream_data << 20) >> 61) + 1) as u8; // 3 bits
+        let bits_per_sample: u8 = (((stream_data << 23) >> 59) + 1) as u8; // 5 bits
+        let total_samples: u64 = ((stream_data << 36) >> 36) as u64; //36 bits
+
+        let mut sig_v = Vec::new();
+        {
+            let mut data_handle = r.take(16);
+            data_handle.read_to_end(&mut sig_v).unwrap();
+        }
+
+        let sig = BigUint::from_bytes_be(&*sig_v);
+
         println!("min blocksize: {} samples", min_block_size);
         println!("max blocksize: {} samples", max_block_size);
         println!("min framesize: {} bytes", min_frame_size);
@@ -71,8 +83,20 @@ impl BlockType {
         println!("sample rate: {}", sample_rate);
         println!("number of channels: {}", num_channels);
         println!("bits per sample: {}", bits_per_sample);
+        println!("total samples: {}", total_samples);
+        println!("md5 sig: {:x}", sig);
 
-        BlockType::Other
+        BlockType::StreamInfo {
+            min_block_size: min_block_size,
+            max_block_size: max_block_size,
+            min_frame_size: min_frame_size,
+            max_frame_size: max_frame_size,
+            sample_rate: sample_rate,
+            num_channels: num_channels,
+            bits_per_sample: bits_per_sample,
+            total_samples: total_samples,
+            sig: sig,
+        }
     }
 
     fn pad<R: io::Read + io::Seek>(r: &mut R) -> BlockType { BlockType::Other }

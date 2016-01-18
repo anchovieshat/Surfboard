@@ -4,6 +4,7 @@ mod flac;
 extern crate byteorder;
 extern crate docopt;
 extern crate rustc_serialize;
+extern crate num;
 
 use std::fs::File;
 use std::io::prelude::*;
