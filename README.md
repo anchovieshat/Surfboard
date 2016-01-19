@@ -1,6 +1,8 @@
 # Surfboard
 WAV file reading and writing in Rust
 
+Now with experimental FLAC!
+
 Currently tested with Rust 1.5.0 on OSX El Capitan
 
 ```
