@@ -245,10 +245,75 @@ impl FrameHeader {
     }
 }
 
+#[derive(Debug)]
+enum SubframeType {
+    Constant,
+    Verbatim,
+    Fixed,
+    LPC,
+    Reserved,
+}
+
+struct Subframe {
+    sub_type: SubframeType,
+    wasted_bits_per_sample: bool,
+}
+
+impl Subframe {
+    pub fn parse<R: io::Read + io::Seek>(r: &mut R) -> Subframe {
+        let header = r.read_u8().unwrap();
+
+        let sub_type = match (header << 2) >> 2 {
+            0 => SubframeType::Constant,
+            1 => SubframeType::Verbatim,
+            8 ... 12 => SubframeType::Fixed,
+            32 ... 63 => SubframeType::LPC,
+            _ => SubframeType::Reserved,
+        };
+
+        let wasted_bits_per_sample = match (header << 7) >> 7 {
+            0 => false,
+            1 => true,
+            _ => panic!("wut"),
+        };
+
+        println!("\nheader: {:0>8b}", header);
+        println!("subframe type: {:?}", sub_type);
+        println!("wasted_bits_per_sample: {}", wasted_bits_per_sample);
+
+        Subframe {
+            sub_type: sub_type,
+            wasted_bits_per_sample: wasted_bits_per_sample,
+        }
+    }
+}
+
+struct Frame {
+    header: FrameHeader,
+    subframes: Vec<Subframe>,
+    footer: u16,
+}
+
+impl Frame {
+    pub fn parse<R: io::Read + io::Seek>(r: &mut R) -> Frame {
+        let header = FrameHeader::parse(r);
+        let mut subframes = Vec::new();
+        let subframe = Subframe::parse(r);
+        subframes.push(subframe);
+        let footer = r.read_u16::<LittleEndian>().unwrap();
+
+        Frame {
+            header: header,
+            subframes: subframes,
+            footer: footer,
+        }
+    }
+}
+
 pub struct Flac {
     stream_info: Block,
     blocks: Option<Vec<Block>>,
-    frames: Vec<u8>,
+    frames: Vec<Frame>,
 }
 
 impl Flac {
@@ -271,8 +336,8 @@ impl Flac {
         }
 
         let mut frames = Vec::new();
-        let frame = FrameHeader::parse(r);
-        r.read_to_end(&mut frames).unwrap();
+        let frame = Frame::parse(r);
+        frames.push(frame);
 
         Flac {
             stream_info: stream_info,
