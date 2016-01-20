@@ -231,63 +231,43 @@ impl Channels {
     }
 }
 
-// ref: http://permalink.gmane.org/gmane.comp.audio.compression.flac.devel/3033
-fn decode_utf8_val<R: io::Read + io::Seek>(r: &mut R) -> u64 {
-    let tx = 0x80;
-    let t2 = 0xC0;
-    let t3 = 0xE0;
-    let t4 = 0xF0;
-    let t5 = 0xF8;
-    let t6 = 0xFC;
-    let t7 = 0xFE;
-    let t8 = 0xFF;
-
-    let maskx = 0x3F;
-    let mask2 = 0x1F;
-    let mask3 = 0x0F;
-    let mask4 = 0x07;
-    let mask5 = 0x03;
-    let mask6 = 0x01;
-
-    let rune1_max = (1 << 7) - 1;
-    let rune2_max = (1 << 11) - 1;
-    let rune3_max = (1 << 16) - 1;
-    let rune4_max = (1 << 21) - 1;
-    let rune5_max = (1 << 26) - 1;
-    let rune6_max: u32 = (1 << 31) - 1;
-
-    let c0 = r.read_u8().unwrap();
-
-    let mut l = 0; // leading bits - 1
-    let mut n = 0;
-
-    if c0 < tx { return c0 as u64 }
-    if c0 < t2 { panic!("unexpected continuation byte") }
-
-    if c0 < t3 { l = 1; n = (c0 as u64) & mask2; }
-    else if c0 < t4 { l = 2; n = (c0 as u64) & mask3; }
-    else if c0 < t5 { l = 3; n = (c0 as u64) & mask4; }
-    else if c0 < t6 { l = 4; n = (c0 as u64) & mask5; }
-    else if c0 < t7 { l = 5; n = (c0 as u64) & mask6; }
-    else if c0 < t8 { l = 6; n = 0; }
-
-    for _ in  0..l {
-        n <<= 6;
-        let c = r.read_u8().unwrap();
-
-        if c < tx || t2 <= c { panic!("expected continuation byte!") }
-
-        n |= (c as u64) & maskx;
+fn decode_utf8_val<R: io::Read + io::Seek>(r: &mut R, s: &BlockStrategy) -> u64 {
+    let byte_0 = r.read_u8().unwrap();
+    let mut magic_string_v = vec![];
+    if String::from_utf8(magic_string_v.clone()).is_err() {
+        panic!("Can't decode as UTF8");
+    } else {
+        magic_string_v.push(byte_0);
     }
 
-    if l <= rune1_max { panic!("larger number than necessary") }
-    if l <= rune2_max { panic!("larger number than necessary") }
-    if l <= rune3_max { panic!("larger number than necessary") }
-    if l <= rune4_max { panic!("larger number than necessary") }
-    if l <= rune5_max { panic!("larger number than necessary") }
-    if l <= rune6_max { panic!("larger number than necessary") }
+    let mut value = 0;
+    let mut magic_clone_v = magic_string_v.clone();
 
-    n
+    let mut limit = 0;
+    if *s == BlockStrategy::VariableBlocksize {
+        limit = 7;
+    } else {
+        limit = 6;
+    }
+
+    for i in 0..limit {
+        {
+            let mut string_handle = r.take(1);
+            string_handle.read_to_end(&mut magic_string_v).unwrap();
+        }
+
+        if String::from_utf8(magic_string_v.clone()).is_err() {
+            let value_v = magic_clone_v.clone();
+            for c in value_v.iter() {
+                value |= (*c as u64) & 0x3F;
+            }
+            r.seek(io::SeekFrom::Current(-1));
+            return value;
+        } else {
+            magic_clone_v = magic_string_v.clone();
+        }
+    }
+    return value;
 }
 
 struct FrameHeader {
@@ -361,9 +341,9 @@ impl FrameHeader {
         let mut frame_num = 0;
         let mut sample_num = 0;
         if block_strategy == BlockStrategy::FixedBlocksize {
-            frame_num = decode_utf8_val(r);
+            frame_num = decode_utf8_val(r, &block_strategy);
         } else {
-            sample_num = decode_utf8_val(r);
+            sample_num = decode_utf8_val(r, &block_strategy);
         }
 
         let block_size = match block_size_bits {
@@ -411,17 +391,17 @@ struct Subframe {
     sub_type: SubframeType,
     wasted_bits_per_sample: bool,
     order: u32,
-    samples: Vec<u32>,
+    samples: Vec<i32>,
 }
 
 // Will require further thinking...
-/*fn signExtend(x: BigUint, n: u32) -> i32 {
+fn signExtend(x: u64, n: u32) -> i32 {
 	if x & (1 << (n - 1)) != 0 {
 		// Sign extend x.
 		return (x | (!0 << n)) as i32
 	}
 	x as i32
-}*/
+}
 
 impl Subframe {
     pub fn parse<R: io::Read + io::Seek>(r: &mut R, bps: u8, block_size: u16) -> Subframe {
@@ -463,20 +443,31 @@ impl Subframe {
         }
     }
 
-    fn decode_samples<R: io::Read + io::Seek>(r: &mut R, sub_type: &SubframeType, order: u32, block_size: u16, bps: u8) -> Vec<u32> {
-        let samples = Vec::with_capacity(block_size as usize);
+    fn decode_samples<R: io::Read + io::Seek>(r: &mut R, sub_type: &SubframeType, order: u32, block_size: u16, bps: u8) -> Vec<i32> {
+        let mut samples = Vec::with_capacity(block_size as usize);
         println!("bits per sample: {}", bps);
+        let take_b = (((bps as f32) / 8.0) * order as f32) as u64;
+        println!("bits to read: {}", take_b * 8);
 
-        for _ in 0..order {
-            let mut warm_up_data_v = Vec::new();
-            {
-                let mut data_handle = r.take(bps as u64);
-                data_handle.read_to_end(&mut warm_up_data_v).unwrap();
-            }
-
-            let warm_up_data = BigUint::from_bytes_be(&*warm_up_data_v);
-            println!("warm up values: {:b}", warm_up_data);
+        let mut warm_up_data_v = Vec::new();
+        {
+            let mut data_handle = r.take(take_b);
+            data_handle.read_to_end(&mut warm_up_data_v).unwrap();
         }
+
+        let mut warm_up_data = 0;
+        for (i, byte) in warm_up_data_v.iter().enumerate() {
+            warm_up_data += (*byte as u64) << (8 * i);
+        }
+        let sample = signExtend(warm_up_data, bps as u32);
+        println!("warm up data: {}", warm_up_data);
+
+        samples.push(sample);
+
+        let t_header = r.read_u32::<LittleEndian>().unwrap();
+        let precision = ((t_header << 4) >> 4) + 1;
+        println!("header: {:0>32b}", t_header);
+        println!("precision: {}", precision);
 
         samples
     }
